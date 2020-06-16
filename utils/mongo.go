@@ -61,5 +61,11 @@ func (this *MongoClient)ReadAll(cursor *mongo.Cursor, result interface{})(err er
 	return
 }
 
+// 插入数据
+func (this *MongoClient) InsertMany(ctx context.Context, documents []interface{}, opts ...*options.InsertManyOptions)(
+	*mongo.InsertManyResult, error){
+	return this.collection.InsertMany(ctx, documents, opts...)
+}
+
 
 

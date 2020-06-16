@@ -14,26 +14,48 @@ type EtcdClient struct{
 	client *clientv3.Client
 	kv clientv3.KV
 	lease clientv3.Lease
+	watcher clientv3.Watcher
 }
 
-// 获取租约
-func (this *EtcdClient) GetLease(ttl int64)(*clientv3.LeaseGrantResponse, error){
-	return this.lease.Grant(context.TODO(), ttl)
+func (this *EtcdClient)Txn(ctx context.Context)clientv3.Txn{
+	return this.kv.Txn(ctx)
+}
+
+func (this *EtcdClient)Watcher()clientv3.Watcher{
+	return this.watcher
+}
+
+func (this *EtcdClient)Lease()clientv3.Lease{
+	return this.lease
+}
+
+// 获取授权租约
+func (this *EtcdClient) GetLeaseGrant(ctx context.Context, ttl int64)(*clientv3.LeaseGrantResponse, error){
+	return this.lease.Grant(ctx, ttl)
+}
+
+// 续租
+func (this *EtcdClient) KeepAlive(ctx context.Context, id clientv3.LeaseID)(<-chan *clientv3.LeaseKeepAliveResponse, error){
+	return this.lease.KeepAlive(ctx, id)
 }
 
 // 写入数据，带租约的写入
-func (this *EtcdClient) PutLease(key string, value interface{}, ttl int64)(result []byte, err error){
-	leaseGrantResponse, err := this.GetLease(ttl)
+func (this *EtcdClient) PutLease(ctx context.Context, key string, value interface{}, ttl int64)(result []byte, err error){
+	leaseGrantResponse, err := this.GetLeaseGrant(context.TODO(), ttl)
 	if err != nil{
 		return
 	}
 	// 将保存数据对象，转换成json字符串存入etcd
-	return this.Put(key, value, clientv3.WithLease(leaseGrantResponse.ID))
+	return this.Put(ctx, key, value, clientv3.WithLease(leaseGrantResponse.ID))
+}
+
+func (this *EtcdClient)Get(ctx context.Context, key string, opts ...clientv3.OpOption)(*clientv3.GetResponse, error){
+	return this.kv.Get(ctx, key, opts...)
 }
 
 // 获取etcd中单条数据
-func (this *EtcdClient) Get(key string)(result []byte, err error){
-	getResp, err := this.kv.Get(context.TODO(), key)
+func (this *EtcdClient) GetOne(ctx context.Context, key string, opts ...clientv3.OpOption)(result []byte, err error){
+	getResp, err := this.Get(ctx, key, opts...)
 	if err != nil{
 		return
 	}
@@ -45,29 +67,37 @@ func (this *EtcdClient) Get(key string)(result []byte, err error){
 	return
 }
 
-// 从etcd中获取多条数据
-func (this *EtcdClient) GetList(key string)(result map[string][]byte, err error){
-	// 查询etcd
-	getResp, err := this.kv.Get(context.TODO(), key, clientv3.WithPrefix())
+// 解析从etcd中获取的数据
+func (this *EtcdClient) ReadValueList(response *clientv3.GetResponse, result interface{})(err error){
+	valueList := make([]string, 0)
+	for _, kvPair := range response.Kvs{
+		valueList = append(valueList, string(kvPair.Value))
+	}
+	bytes, err := json.Marshal(valueList)
 	if err != nil{
 		return
 	}
-	// 将数据返回
-	result = make(map[string][]byte)
-	for _, kvPair := range getResp.Kvs{
-		result[string(kvPair.Key)] = kvPair.Value
+	err = json.Unmarshal(bytes, result)
+	return
+}
+
+// 解析从Etcd中获取的key
+func (this *EtcdClient) ReadKeyList(response *clientv3.GetResponse)(result []string, err error){
+	result = make([]string, 0)
+	for _, kvPair := range response.Kvs{
+		result = append(result, string(kvPair.Key))
 	}
 	return
 }
 
 // 向etcd中添加数据
-func (this *EtcdClient) Put(key string, value interface{}, opts ...clientv3.OpOption)(result []byte, err error){
+func (this *EtcdClient) Put(ctx context.Context, key string, value interface{}, opts ...clientv3.OpOption)(result []byte, err error){
 	// 将保存数据对象，转换成json字符串存入etcd
 	byteValue, err := json.Marshal(value)
 	if err != nil{
 		return
 	}
-	putResp, err := this.kv.Put(context.TODO(), key, string(byteValue), opts...)
+	putResp, err := this.kv.Put(ctx, key, string(byteValue), opts...)
 	if err != nil{
 		return
 	}
@@ -112,12 +142,14 @@ func init(){
 	// 得到kv和lease
 	kv := clientv3.NewKV(client)
 	lease := clientv3.NewLease(client)
+	watcher := clientv3.NewWatcher(client)
 
 	// 赋值全局单例
 	G_EtcdClient = &EtcdClient{
 		client: client,
 		kv: kv,
 		lease: lease,
+		watcher: watcher,
 	}
 	return
 }

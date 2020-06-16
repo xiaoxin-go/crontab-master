@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"crontab/common"
 	"crontab/utils"
 	"encoding/json"
@@ -17,16 +18,13 @@ func (this *JobController) GetList(){
 	name = common.JOB_SAVE_DIR + name
 
 	// 从etcd中获取任务列表
-	result, err := utils.G_EtcdClient.GetList(name)
+	resp, err := utils.G_EtcdClient.Get(context.TODO(), name)
 	this.HttpServerError(err, "获取数据异常")
 	// 数据获取成功，将数据转换成job格式返回
 	jobList := make([]*common.Job, 0)
-	for _, jobBytes := range result{
-		job := common.Job{}
-		err = json.Unmarshal(jobBytes, &job)
-		this.HttpServerError(err, "数据转换异常")
-		jobList = append(jobList, &job)
-	}
+	err = utils.G_EtcdClient.ReadValueList(resp, &jobList)
+	this.HttpServerError(err, "转换数据异常")
+
 	this.HttpSuccess(jobList, "ok")
 }
 
@@ -41,7 +39,7 @@ func (this *JobController) Save(){
 	key := common.JOB_SAVE_DIR + job.Name
 
 	// 写入数据，返回
-	_, err = utils.G_EtcdClient.Put(key, job)
+	_, err = utils.G_EtcdClient.Put(context.TODO(), key, job)
 	this.HttpServerError(err, "保存数据异常")
 	this.HttpSuccess(nil, "ok")
 }
@@ -61,7 +59,7 @@ func (this *JobController) Kill(){
 	name := this.GetString(":name")
 	name = common.JOB_KILLER_DIR + name
 
-	_, err := utils.G_EtcdClient.PutLease(name, "", 10)
+	_, err := utils.G_EtcdClient.PutLease(context.TODO(), name, "", 10)
 	this.HttpServerError(err, "写入ETCD异常")
 	this.HttpSuccess(nil, "操作成功")
 }

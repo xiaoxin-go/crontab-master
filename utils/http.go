@@ -36,6 +36,6 @@ func (h *HttpController) HttpParamsError(err error, message string){
 
 // 服务器异常返回
 func (h *HttpController) HttpServerError(err error, message string){
-	h.HttpServerError(err, message)
+	h.HttpError(err, message, common.ServerError)
 }
 
